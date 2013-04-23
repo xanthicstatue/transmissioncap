@@ -160,18 +160,15 @@ if __name__ == '__main__':
 				exit(0) # end execution
 			UpdateUsage(myDB,current) 
 
-			sys.exit() # Comcast doesn't care about caps right now
 			if OverLimits(myDB):
 				stopTorrents(tc,s_stats)
 		
 		elif lvl == syslog.LOG_INFO or lvl == syslog.LOG_DEBUG: # this only runs if we are logging info messages
-			sys.exit()
 			usageThisMonth = sum(sum(x) for x in myDB['data'][currentYear][currentMonth].values())
 			if usageThisMonth >= monthlyCap:
 				syslog.syslog(syslog.LOG_INFO, "Monthly cap exceeded. %s" % str(float(monthlyCap-usageThisMonth)/1073741824))
 			else:
 				syslog.syslog(syslog.LOG_INFO,"Daily cap exceeded %s. Monthly cap remaining:%s " % (str(float(dailyCap-usageThisMonth)/1073741824),str(float(monthlyCap-usageThisMonth)/1073741824)))
-		sys.exit()
 		# if this is the first run of the day, start the torrents
 		if time.localtime(date).tm_hour == 0 and time.localtime(date).tm_min < 8: # and not OverLimits(myDB): #~ if you don't run this script during the first 7 minutes of the day you need to chance the range.
 			startTorrents(tc,s_stats)
