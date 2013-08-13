@@ -37,7 +37,7 @@ from dbdict import PersistentDict # from http://code.activestate.com/recipes/576
 #~ Change these values to match your environment
 from s_info import server, s_port, s_user, s_pass
 
-cap = 150 #~ bandwidth cap in gigaBytes
+cap = 200 #~ bandwidth cap in gigaBytes
 date = time.time() + 10800 #~ adjusted for EST since Comcast uses EST to reset monthly cap
 
 
@@ -72,28 +72,28 @@ dailyCap = monthlyCap * daily_ratio # rolling daily cap so not bandwidth capped 
 def forceStart():
 	# sign in to our transmission client so we can get information and issue commands
 	tc = transmissionrpc.Client(server,port=s_port,user=s_user,password=s_pass)
-	for i in range(1,tc.session_stats().torrentCount+1):
-		tc.start(i)
+	for i in tc.get_torrents():
+		tc.start_torrent(i.id)
 	tc.set_session(start_added_torrents=True)
 
 # function to stop all torrents and disable autostart
 def stopTorrents(tc,s_stats):
 	tc.set_session(start_added_torrents=False)
-	for i in range(1,s_stats.torrentCount+1):
-		tc.stop(i)
+	for i in tc.get_torrents():
+		tc.stop_torrent(i.id)
 
 # function to start all torrents and enable autostart
 def startTorrents(tc,s_stats):
 	tc.set_session(start_added_torrents=True)
-	for i in range(1,s_stats.torrentCount+1):
-		tc.start(i)
+	for i in tc.get_torrents():
+		tc.start_torrent(i.id)
 
 
 
 # attempt to open our database
 # If database is not found or it is a new day a default dictionary entry will be created
 def SetupDB():
-	myDB = PersistentDict('/home/xanthic/Documents/transmission/transm_log.json' , 'c', format='json')
+	myDB = PersistentDict('./transm_log.json' , 'c', format='json')
 	myDB.setdefault('lastUsage', 0)
 	myDB.setdefault('data', {})
 	myDB['data'].setdefault(currentYear, {})
@@ -106,7 +106,9 @@ def SetupDB():
 def GetIncrementalUsage(myDB,current):
 	usage = current 
 	lastUsage = myDB["lastUsage"]
-	if usage >= lastUsage:
+	if lastUsage == 0: # in most scenarios if lastUsage is 0 there was an error somewhere.
+		incr = 0
+	elif usage >= lastUsage:
 		incr = usage - lastUsage
 	else:
 		incr = usage
@@ -149,9 +151,10 @@ if __name__ == '__main__':
 		#~ if we want all 288 entires, move UpdateUsage outside of the if statement
 		if s_stats.activeTorrentCount > 0:
 			#if status == downloading, reannounce
-			for i in range(1,s_stats.torrentCount+1):
-				if tc.info(i)[i].status == 'downloading':
-					tc.reannounce(i)	
+# TODO fix this
+			for i in tc.get_torrents():
+				if i.status == 'downloading':
+					tc.reannounce_torrent(i.id)	
 			
 			# get transmissions current total transfer stats
 			current = s_stats.cumulative_stats['downloadedBytes']+s_stats.cumulative_stats['uploadedBytes']
@@ -162,17 +165,19 @@ if __name__ == '__main__':
 
 			if OverLimits(myDB):
 				stopTorrents(tc,s_stats)
-		
-		elif lvl == syslog.LOG_INFO or lvl == syslog.LOG_DEBUG: # this only runs if we are logging info messages
+				usageThisMonth = sum(sum(x) for x in myDB['data'][currentYear][currentMonth].values())
+
+		if lvl == syslog.LOG_INFO or lvl == syslog.LOG_DEBUG: # this only runs if we are logging info messages
 			usageThisMonth = sum(sum(x) for x in myDB['data'][currentYear][currentMonth].values())
 			if usageThisMonth >= monthlyCap:
 				syslog.syslog(syslog.LOG_INFO, "Monthly cap exceeded. %s" % str(float(monthlyCap-usageThisMonth)/1073741824))
 			else:
-				syslog.syslog(syslog.LOG_INFO,"Daily cap exceeded %s. Monthly cap remaining:%s " % (str(float(dailyCap-usageThisMonth)/1073741824),str(float(monthlyCap-usageThisMonth)/1073741824)))
+				syslog.syslog(syslog.LOG_INFO,"Daily cap remaining %s. Monthly cap remaining:%s " % (str(float(dailyCap-usageThisMonth)/1073741824),str(float(monthlyCap-usageThisMonth)/1073741824)))
 		# if this is the first run of the day, start the torrents
 		if time.localtime(date).tm_hour == 0 and time.localtime(date).tm_min < 8: # and not OverLimits(myDB): #~ if you don't run this script during the first 7 minutes of the day you need to chance the range.
 			startTorrents(tc,s_stats)
 	except Exception, error:
+		print error
 		# log the error
 		syslog.syslog(syslog.LOG_ERR,str(error))
 
